@@ -617,7 +617,7 @@ function StepResult({
           onClick={handleDownloadPdf}
           className="rounded-full bg-rose-600 disabled:opacity-60 text-white px-5 py-2.5 text-sm font-medium hover:bg-rose-700"
         >
-          {pdfBusy ? "Hazırlanıyor…" : `📄 PDF İndir (${totalPrintPages} sayfa, gerçek boy)`}
+          {pdfBusy ? "Hazırlanıyor…" : `📄 PDF İndir (içindekiler + ${totalPrintPages} sayfa, gerçek boy)`}
         </button>
         <button type="button" onClick={() => window.print()} className="rounded-full border border-stone-300 dark:border-stone-700 px-5 py-2.5 text-sm font-medium">
           🖨️ Tarayıcıdan Yazdır

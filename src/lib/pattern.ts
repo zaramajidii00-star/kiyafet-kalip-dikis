@@ -190,6 +190,44 @@ export function boundingBox(points: Pt[]) {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
+function centroid(points: Pt[]): Pt {
+  const sum = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+  return { x: sum.x / points.length, y: sum.y / points.length };
+}
+
+export type DimensionLabel = { pos: Pt; text: string };
+
+/**
+ * Her kenarın (draftSegments) gerçek cm uzunluğunu, kenarın orta noktasına,
+ * parça merkezinden dışa doğru hafifçe kaydırılmış olarak etiketler —
+ * ekrandaki önizlemede, yazdırma sayfalarında ve PDF'te ORTAK kullanılır
+ * (tek kaynaktan hesaplanır, ikisi arasında sapma olmaz).
+ */
+export function segmentDimensionLabels(piece: PatternPiece): DimensionLabel[] {
+  const c = centroid(piece.seamLine);
+  const byId = new Map(piece.draftPoints.map((p) => [p.id, p.point]));
+  const offset = 0.9;
+
+  return piece.draftSegments.map((seg) => {
+    const a = byId.get(seg.from);
+    const b = byId.get(seg.to);
+    if (!a || !b) return { pos: c, text: "" };
+
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const dir = { x: b.x - a.x, y: b.y - a.y };
+    const dlen = Math.hypot(dir.x, dir.y) || 1;
+    let perp = { x: -dir.y / dlen, y: dir.x / dlen };
+    const toward = { x: mid.x - c.x, y: mid.y - c.y };
+    if (perp.x * toward.x + perp.y * toward.y < 0) perp = { x: -perp.x, y: -perp.y };
+
+    return {
+      pos: { x: mid.x + perp.x * offset, y: mid.y + perp.y * offset },
+      text: `${Math.round(length * 10) / 10} cm`,
+    };
+  });
+}
+
 function round(n: number, digits = 2): number {
   const f = 10 ** digits;
   return Math.round(n * f) / f;

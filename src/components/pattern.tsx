@@ -9,6 +9,7 @@ import {
   layoutPiecesForPreview,
   pointsToPath,
   seamAllowancePath,
+  segmentDimensionLabels,
   type PatternPiece,
 } from "@/lib/pattern";
 
@@ -23,11 +24,13 @@ export function PatternPieceSvg({
   offsetX,
   offsetY,
   showLabels = true,
+  showDimensions = true,
 }: {
   piece: PatternPiece;
   offsetX: number;
   offsetY: number;
   showLabels?: boolean;
+  showDimensions?: boolean;
 }) {
   const cutLine = seamAllowancePath(piece);
   const seamPath = pointsToPath(piece.seamLine);
@@ -107,6 +110,15 @@ export function PatternPieceSvg({
           </g>
         );
       })}
+
+      {showDimensions &&
+        segmentDimensionLabels(piece)
+          .filter((d) => d.text)
+          .map((d, i) => (
+            <text key={i} x={d.pos.x} y={d.pos.y} fontSize={1.05} textAnchor="middle" className="fill-stone-500 dark:fill-stone-400">
+              {d.text}
+            </text>
+          ))}
 
       {showLabels && (
         <>

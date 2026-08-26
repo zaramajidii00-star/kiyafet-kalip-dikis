@@ -16,6 +16,7 @@ import {
   boundingBox,
   computeTiles,
   seamAllowancePath,
+  segmentDimensionLabels,
   type PatternPiece,
   type Pt,
   type Tile,
@@ -131,6 +132,15 @@ function drawPiece(doc: jsPDF, piece: PatternPiece, tile: Tile, showLabel: boole
     }
   }
 
+  // Her kenarın gerçek cm uzunluğu
+  doc.setTextColor(...COLOR_MUTED);
+  doc.setFontSize(6.5);
+  for (const d of segmentDimensionLabels(piece)) {
+    if (!d.text) continue;
+    const p = toPage(d.pos, tile);
+    doc.text(d.text, p.x, p.y, { align: "center" });
+  }
+
   if (showLabel) {
     const anchor = toPage(piece.labelAnchor, tile);
     doc.setFont(FONT_NAME, "bold");
@@ -149,7 +159,7 @@ function drawPiece(doc: jsPDF, piece: PatternPiece, tile: Tile, showLabel: boole
   }
 }
 
-function drawPageHeader(doc: jsPDF, piece: PatternPiece, tile: Tile) {
+function drawPageHeader(doc: jsPDF, piece: PatternPiece, tile: Tile, pageNum: number, totalPages: number) {
   doc.setFont(FONT_NAME, "bold");
   doc.setTextColor(...COLOR_SEAM);
   doc.setFontSize(11);
@@ -163,6 +173,7 @@ function drawPageHeader(doc: jsPDF, piece: PatternPiece, tile: Tile) {
     0.3,
     1.15
   );
+  doc.text(`Sayfa ${pageNum}/${totalPages}`, 0.3, 1.6);
 
   // Kalibrasyon karesi — sağ üstte.
   const sqX = TILE_WIDTH_CM - CALIBRATION_SQUARE_CM - 0.3;
@@ -181,19 +192,73 @@ function drawPageHeader(doc: jsPDF, piece: PatternPiece, tile: Tile) {
   doc.line(0.3, TILE_HEADER_CM - 0.15, TILE_WIDTH_CM - 0.3, TILE_HEADER_CM - 0.15);
 }
 
+/**
+ * Kaç parça olursa olsun (etek, bluz, kol, yaka…) hangisinin hangi
+ * sayfa(lar)da olduğunu gösteren bir içindekiler sayfası — "kol için ayrı
+ * sayfa, etek için ayrı sayfa" ihtiyacını karşılamak üzere, her parçanın
+ * sayfa aralığını baştan listeler.
+ */
+function drawIndexPage(doc: jsPDF, pieceTiles: { piece: PatternPiece; tiles: Tile[] }[], totalPages: number) {
+  doc.setFont(FONT_NAME, "bold");
+  doc.setTextColor(...COLOR_SEAM);
+  doc.setFontSize(18);
+  doc.text("Kalıp Atölyesi", 1.5, 2.3);
+  doc.setFontSize(11);
+  doc.text("İçindekiler", 1.5, 3.1);
+  doc.setFont(FONT_NAME, "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text(`Toplam ${totalPages} sayfa (bu sayfa dahil)`, 1.5, 3.7);
+
+  let page = 2;
+  let y = 5.2;
+  for (const { piece, tiles } of pieceTiles) {
+    const start = page;
+    const end = page + tiles.length - 1;
+    doc.setFont(FONT_NAME, "bold");
+    doc.setFontSize(12.5);
+    doc.setTextColor(...COLOR_SEAM);
+    doc.text(piece.label, 1.5, y);
+    doc.setFont(FONT_NAME, "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text(tiles.length > 1 ? `sayfa ${start}–${end}` : `sayfa ${start}`, 19.5, y, { align: "right" });
+    doc.setDrawColor(...COLOR_MUTED);
+    doc.setLineWidth(0.01);
+    doc.setLineDashPattern([0.1, 0.1], 0);
+    doc.line(1.5, y + 0.15, 19.5, y + 0.15);
+    page += tiles.length;
+    y += 1.1;
+  }
+
+  doc.setFontSize(9);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text(
+    "Her parçanın kendi sayfasında: kesikli çizgi = kesim çizgisi (1,5 cm dikiş payı dahil),\n" +
+      "düz çizgi = dikiş çizgisi. Her kenarın üzerinde o kenarın gerçek cm uzunluğu yazar.\n" +
+      "Sayfa üstündeki kareyi cetvelle ölç — tam 3×3 cm değilse yazdırma ayarında ölçek %100 olmalı.",
+    1.5,
+    y + 0.8
+  );
+}
+
 /** Tüm kalıp parçalarını, gerçek cm ölçeğinde A4 sayfalara bölünmüş bir PDF'e çizer. */
 export async function buildPatternPdf(pieces: PatternPiece[]): Promise<jsPDF> {
   const doc = new jsPDF({ unit: "cm", format: "a4" });
   await registerTurkishFont(doc);
-  let firstPage = true;
 
-  for (const piece of pieces) {
-    const tiles = computeTiles(piece);
+  const pieceTiles = pieces.map((piece) => ({ piece, tiles: computeTiles(piece) }));
+  const totalContentPages = pieceTiles.reduce((sum, p) => sum + p.tiles.length, 0);
+  const totalPages = totalContentPages + 1;
+
+  drawIndexPage(doc, pieceTiles, totalPages);
+
+  let pageNum = 1;
+  for (const { piece, tiles } of pieceTiles) {
     for (const tile of tiles) {
-      if (!firstPage) doc.addPage("a4");
-      firstPage = false;
-
-      drawPageHeader(doc, piece, tile);
+      pageNum++;
+      doc.addPage("a4");
+      drawPageHeader(doc, piece, tile, pageNum, totalPages);
       drawPiece(doc, piece, tile, tile.row === 0 && tile.col === 0);
     }
   }
