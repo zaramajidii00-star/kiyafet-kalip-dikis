@@ -648,7 +648,8 @@ export function computeTiles(piece: PatternPiece): Tile[] {
 // Dikiş talimatları
 // ---------------------------------------------------------------------------
 
-export type InstructionStep = { title: string; detail: string };
+/** "dart" | "shoulder" | "side" | "sleeve" | "edge-finish" | "zipper" | "waist-join" | "hem" — bkz. sewing-diagrams.tsx */
+export type InstructionStep = { title: string; detail: string; diagram?: string };
 export type InstructionSection = { heading: string; steps: InstructionStep[] };
 
 const PREP_STEPS: InstructionStep[] = [
@@ -673,6 +674,7 @@ const DART_STEP: InstructionStep = {
   title: "Pensleri dik",
   detail:
     "Kalıpta işaretli pens (V şeklindeki) çizgilerini kumaşa tebeşir/kaybolan kalemle aktar. Kumaşı pens ortasından ikiye katla, taban noktalarından uca (pens ucu) doğru düz bir çizgiyle dik, iplikleri düğümle. Pens ucunu aniden kesmeden, son 1 cm'de iğneyi yavaşça inceltip dik — böylece ucu sivri değil yumuşak biter.",
+  diagram: "dart",
 };
 
 function garmentSteps(options: GarmentOptions, pattern: GeneratedPattern): InstructionSection[] {
@@ -689,10 +691,12 @@ function garmentSteps(options: GarmentOptions, pattern: GeneratedPattern): Instr
       {
         title: "Omuz dikişlerini birleştir",
         detail: "Ön ve arka bedeni sağ yüzler birbirine bakacak şekilde omuzlardan üst üste koy, iğnele, omuz dikişini dik (1,5 cm dikiş payı). Dikiş payını ütüyle arkaya doğru yatır.",
+        diagram: "shoulder",
       },
       {
         title: "Yan dikişleri birleştir",
         detail: "Ön ve arka bedeni sağ yüzler birbirine bakacak şekilde yan taraflardan (koltuk altından belden aşağı) birleştir, iğnele ve dik. Kol oyuntusunu şimdilik açık bırak.",
+        diagram: "side",
       }
     );
   }
@@ -702,11 +706,13 @@ function garmentSteps(options: GarmentOptions, pattern: GeneratedPattern): Instr
       title: "Kolu tak",
       detail:
         "Kol parçasındaki tek çentiği ön kol oyuntusuna, çift çentiği arka kol oyuntusuna denk getir. Kol kapağını (üst kavisli kısmı) hafifçe topla (gevşek bir toplama dikişi çekip ipliği çekerek) ki fazlalık düzgün dağılsın, sonra kol oyuntusuna iğneleyip dik. Kol altını ve beden yan dikişini tek seferde birleştirip dikebilirsin.",
+      diagram: "sleeve",
     });
   } else if (hasBodice) {
     assemblySteps.push({
       title: "Kol oyuntusunu bitir",
       detail: "Kolsuz bırakacağın için kol oyuntusu kenarını 1 cm katlayıp ütüle, bir daha katla (ya da bies bandı kullan) ve makine ile dik — kenar sarılıp bitmiş görünür.",
+      diagram: "edge-finish",
     });
   }
 
@@ -714,6 +720,7 @@ function garmentSteps(options: GarmentOptions, pattern: GeneratedPattern): Instr
     assemblySteps.push({
       title: "Yaka kenarını bitir",
       detail: "Boyun kenarını da kol oyuntusu gibi katlayarak dik ya da bies bandıyla kapat. İstersen basit bir dik yaka bandı da ekleyebilirsin (yaka çevresi kadar 4-5 cm eninde bir şerit kesip katlayarak diksin).",
+      diagram: "edge-finish",
     });
   }
 
@@ -722,10 +729,12 @@ function garmentSteps(options: GarmentOptions, pattern: GeneratedPattern): Instr
       {
         title: options.garmentType === "elbise" ? "Etek kısmını birleştir" : "Etek parçalarını birleştir",
         detail: "Ön ve arka etek parçalarını sağ yüzler birbirine bakacak şekilde yan dikişlerden birleştir. Arka ortadaki dikişi, fermuar boyu kadar (yakl. 18 cm) üstten açık bırak.",
+        diagram: "side",
       },
       {
         title: "Fermuarı tak",
         detail: "Arka ortada açık bıraktığın kısma gizli ya da normal bir fermuar dik (fermuar diken ayak varsa işini kolaylaştırır). Fermuar takmadan önce bel lastiği tercih ediyorsan bu adımı atlayıp bel kısmına 3-4 cm'lik bir lastik geçirebilirsin — daha kolay bir alternatif.",
+        diagram: "zipper",
       }
     );
   }
@@ -734,12 +743,14 @@ function garmentSteps(options: GarmentOptions, pattern: GeneratedPattern): Instr
     assemblySteps.push({
       title: "Beden ile eteği birleştir",
       detail: "Beden ve etek parçalarını bel hizasından, pensler/dikişler üst üste denk gelecek şekilde iğnele ve dik. Bu dikiş, kesik gösteren bel çizgisidir.",
+      diagram: "waist-join",
     });
   }
 
   assemblySteps.push({
     title: "Etek/gömlek ucunu bitir",
     detail: "Alt kenarı istediğin uzunlukta kes (kalıptaki uzunluk zaten seçtiğin boy), 1 cm katla-ütüle, bir daha 1-2 cm katla ve makineyle dik.",
+    diagram: "hem",
   });
 
   sections.push({ heading: "2. Birleştirme sırası", steps: assemblySteps });

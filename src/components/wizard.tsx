@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PatternPreview, PrintPages } from "@/components/pattern";
+import { SewingDiagram, type DiagramKind } from "@/components/sewing-diagrams";
 import { buildDraftingGuide } from "@/lib/pattern-draft";
 import { downloadPatternPdf } from "@/lib/pattern-pdf";
 import {
@@ -661,13 +662,23 @@ function StepResult({
 
       <div className="print:hidden space-y-3">
         <h3 className="text-lg font-semibold">Nasıl dikeceksin?</h3>
+        <p className="text-sm text-stone-500">
+          Diyagramı olan adımlarda küçük bir şema var — genel/örnek bir gösterim, senin kalıbının gerçek şekli değil,
+          ama tekniği anlamana yardımcı olur.
+        </p>
         {sections.map((section) => (
           <details key={section.heading} className="rounded-2xl border border-stone-200 dark:border-stone-800 p-4" open>
             <summary className="font-medium cursor-pointer">{section.heading}</summary>
-            <ol className="mt-3 space-y-3 list-decimal list-inside">
-              {section.steps.map((step) => (
-                <li key={step.title}>
-                  <span className="font-medium">{step.title}.</span> <span className="text-stone-600 dark:text-stone-400">{step.detail}</span>
+            <ol className="mt-3 space-y-5">
+              {section.steps.map((step, i) => (
+                <li key={step.title} className="space-y-2">
+                  <div>
+                    <span className="font-medium">
+                      {i + 1}. {step.title}.
+                    </span>{" "}
+                    <span className="text-stone-600 dark:text-stone-400">{step.detail}</span>
+                  </div>
+                  {step.diagram && <SewingDiagram kind={step.diagram as DiagramKind} />}
                 </li>
               ))}
             </ol>
