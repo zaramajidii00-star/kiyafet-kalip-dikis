@@ -59,6 +59,7 @@ export type GarmentType = "etek" | "bluz" | "elbise";
 export type FitPreference = "dar" | "normal" | "bol";
 export type SleeveOption = "kolsuz" | "kisa" | "dirsek" | "uzun";
 export type SkirtSilhouette = "duz" | "a-kesim" | "kalem";
+export type NecklineShape = "yuvarlak" | "v-yaka" | "kare" | "kayik";
 
 export type RawMeasurements = {
   bust: number;
@@ -78,6 +79,7 @@ export type GarmentOptions = {
   sleeve: SleeveOption;
   skirtLength: number;
   skirtSilhouette: SkirtSilhouette;
+  necklineShape: NecklineShape;
   fabricWidth: number;
 };
 
@@ -102,6 +104,15 @@ export type GarmentPhotoAnalysis = {
   sleeveType: string;
   closure: string;
   notes: string;
+  /**
+   * Kalıbın GERÇEK GEOMETRİSİNE işlenen yapılandırılmış alanlar (yukarıdaki
+   * serbest metinlerden farklı olarak) — böylece fotoğraf sadece bir not
+   * değil, kalıbın şeklini de değiştiriyor.
+   */
+  fit: FitPreference | null;
+  sleeveOption: SleeveOption | null;
+  skirtSilhouette: SkirtSilhouette | null;
+  necklineShape: NecklineShape | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -390,9 +401,27 @@ function buildBackBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["no
   };
 }
 
-function buildFrontBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["normal"]): PatternPiece {
-  const fnw = round1(d.neck / 5);
-  const fnd = round1(d.neck / 5 + 1);
+/**
+ * Yaka şekline göre ön boyun genişliği/derinliği çarpanları — fotoğraftan
+ * ya da elle seçilen yaka şekli, kalıbın gerçek geometrisini değiştirsin
+ * diye (önceden sadece metin notuydu, kalıbın şeklini etkilemiyordu).
+ */
+const NECKLINE_MULTIPLIERS: Record<NecklineShape, { w: number; d: number }> = {
+  yuvarlak: { w: 1, d: 1 },
+  "v-yaka": { w: 0.9, d: 1.9 },
+  kare: { w: 1.05, d: 1.15 },
+  kayik: { w: 1.55, d: 0.5 },
+};
+
+function buildFrontBodice(
+  m: RawMeasurements,
+  d: Derived,
+  ease: (typeof EASE)["normal"],
+  necklineShape: NecklineShape = "yuvarlak"
+): PatternPiece {
+  const mul = NECKLINE_MULTIPLIERS[necklineShape];
+  const fnw = round1((d.neck / 5) * mul.w);
+  const fnd = round1((d.neck / 5 + 1) * mul.d);
   const sh = d.shoulder;
   const shDrop = round1(sh * 0.23);
   const shX = Math.sqrt(Math.max(sh * sh - shDrop * shDrop, 1));
@@ -414,10 +443,39 @@ function buildFrontBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["n
   const cfWaistPt: Pt = { x: 0, y: waistLen };
   const cfNeckPt: Pt = { x: 0, y: 0 };
 
-  const neckCurve = sampleQuadraticBezier(cfNeckPt, { x: fnw * 0.6, y: fnd * 0.15 }, neckShoulderPt, 4);
+  // Yaka şekline göre A (cfNeckPt) → B (neckShoulderPt) arası farklı çizilir:
+  // yuvarlak/kayık = yumuşak eğri, v-yaka = düz çizgi, kare = dik köşeli L.
+  const squareCornerPt: Pt = { x: 0, y: fnd };
+  let neckSeamPoints: Pt[];
+  let neckDraftPoints: DraftPoint[];
+  let neckDraftSegments: DraftSegment[];
+  if (necklineShape === "kare") {
+    neckSeamPoints = [squareCornerPt];
+    neckDraftPoints = [{ id: "K", label: "Kare yaka köşesi", point: squareCornerPt }];
+    neckDraftSegments = [
+      { from: "A", to: "K", curve: false, note: "kare yaka — düz aşağı" },
+      { from: "K", to: "B", curve: false, note: "kare yaka — düz yatay" },
+    ];
+  } else if (necklineShape === "v-yaka") {
+    neckSeamPoints = [];
+    neckDraftPoints = [];
+    neckDraftSegments = [{ from: "A", to: "B", curve: false, note: "V yaka — cetvelle düz çizgi" }];
+  } else {
+    const curveMul = necklineShape === "kayik" ? 0.75 : 0.6;
+    neckSeamPoints = sampleQuadraticBezier(cfNeckPt, { x: fnw * curveMul, y: fnd * 0.15 }, neckShoulderPt, 4);
+    neckDraftPoints = [];
+    neckDraftSegments = [
+      {
+        from: "A",
+        to: "B",
+        curve: true,
+        note: necklineShape === "kayik" ? "kayık yaka — geniş, sığ eğri" : "yaka çizgisi, belirgin içbükey",
+      },
+    ];
+  }
   const armholeCurve = sampleQuadraticBezier(shoulderPt, acrossFrontPt, underarmPt, 5);
 
-  const seamLine: Pt[] = [cfNeckPt, ...neckCurve, neckShoulderPt, shoulderPt, ...armholeCurve, underarmPt, waistSidePt, cfWaistPt];
+  const seamLine: Pt[] = [cfNeckPt, ...neckSeamPoints, neckShoulderPt, shoulderPt, ...armholeCurve, underarmPt, waistSidePt, cfWaistPt];
 
   const dartBaseWidth = Math.max(0, waistSideX - fwq);
   const dartCenterX = round1(fq * 0.55);
@@ -439,6 +497,7 @@ function buildFrontBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["n
     note: "Bu basit kalıpta göğüs pensi tek bir bel pensiyle birleştirildi — daha oturan bir kesim için pens uçları göğüs noktanıza doğru kaydırılabilir.",
     draftPoints: [
       { id: "A", label: "Ön orta, yaka başı", point: cfNeckPt },
+      ...neckDraftPoints,
       { id: "B", label: "Boyun-omuz köşesi", point: neckShoulderPt },
       { id: "C", label: "Omuz ucu", point: shoulderPt },
       { id: "H", label: "Kol oyuntusu yardımcı noktası", point: acrossFrontPt },
@@ -447,7 +506,7 @@ function buildFrontBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["n
       { id: "F", label: "Ön orta, bel", point: cfWaistPt },
     ],
     draftSegments: [
-      { from: "A", to: "B", curve: true, note: "yaka çizgisi, belirgin içbükey" },
+      ...neckDraftSegments,
       { from: "B", to: "C", curve: false },
       { from: "C", to: "H", curve: true, note: "kol oyuntusu eğrisinin başı" },
       { from: "H", to: "D", curve: true, note: "kol oyuntusu eğrisinin devamı" },
@@ -592,7 +651,7 @@ export function generatePattern(measurements: RawMeasurements, options: GarmentO
   const ease = EASE[options.fit];
 
   const back = buildBackBodice(measurements, derived, ease);
-  const front = buildFrontBodice(measurements, derived, ease);
+  const front = buildFrontBodice(measurements, derived, ease, options.necklineShape);
 
   const pieces: PatternPiece[] = [];
 

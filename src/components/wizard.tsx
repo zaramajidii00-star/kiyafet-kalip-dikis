@@ -17,6 +17,7 @@ import {
   type GarmentPhotoAnalysis,
   type GarmentType,
   type GeneratedPattern,
+  type NecklineShape,
   type RawMeasurements,
   type SkirtSilhouette,
   type SleeveOption,
@@ -30,6 +31,7 @@ const DEFAULT_OPTIONS: Omit<GarmentOptions, "garmentType"> = {
   sleeve: "uzun",
   skirtLength: 60,
   skirtSilhouette: "a-kesim",
+  necklineShape: "yuvarlak",
   fabricWidth: 140,
 };
 
@@ -115,7 +117,15 @@ export function AtolyeApp() {
       </ol>
 
       {step === 1 && (
-        <StepGarment garmentTypes={garmentTypes} onChangeTypes={setGarmentTypes} analyses={analyses} onAnalyses={setAnalyses} onNext={() => setStep(2)} />
+        <StepGarment
+          garmentTypes={garmentTypes}
+          onChangeTypes={setGarmentTypes}
+          analyses={analyses}
+          onAnalyses={setAnalyses}
+          options={options}
+          onChangeOptions={setOptions}
+          onNext={() => setStep(2)}
+        />
       )}
 
       {step === 2 && (
@@ -159,12 +169,16 @@ function StepGarment({
   onChangeTypes,
   analyses,
   onAnalyses,
+  options,
+  onChangeOptions,
   onNext,
 }: {
   garmentTypes: GarmentType[];
   onChangeTypes: (t: GarmentType[]) => void;
   analyses: GarmentPhotoAnalysis[];
   onAnalyses: (a: GarmentPhotoAnalysis[]) => void;
+  options: OptionsState;
+  onChangeOptions: (o: OptionsState) => void;
   onNext: () => void;
 }) {
   const [analyzing, setAnalyzing] = useState(false);
@@ -219,6 +233,18 @@ function StepGarment({
         // Etek + Bluz gibi ayrı ayrı seçili olsunlar.
         onChangeTypes([...new Set(detectedTypes.filter((t) => t !== "elbise"))]);
       }
+
+      // Fotoğraftan çıkan yaka şekli, kesim sıkılığı, kol/etek siluet gibi
+      // yapılandırılmış bilgileri gerçek kalıp seçeneklerine uygula —
+      // fotoğraf artık sadece bir not değil, kalıbın şeklini de belirliyor.
+      const bodiceAnalysis = results.find((r) => r.garmentType === "bluz" || r.garmentType === "elbise") ?? results[0];
+      const skirtAnalysis = results.find((r) => r.garmentType === "etek" || r.garmentType === "elbise") ?? results[0];
+      const optionUpdates: Partial<OptionsState> = {};
+      if (bodiceAnalysis?.fit) optionUpdates.fit = bodiceAnalysis.fit;
+      if (bodiceAnalysis?.sleeveOption) optionUpdates.sleeve = bodiceAnalysis.sleeveOption;
+      if (bodiceAnalysis?.necklineShape) optionUpdates.necklineShape = bodiceAnalysis.necklineShape;
+      if (skirtAnalysis?.skirtSilhouette) optionUpdates.skirtSilhouette = skirtAnalysis.skirtSilhouette;
+      if (Object.keys(optionUpdates).length > 0) onChangeOptions({ ...options, ...optionUpdates });
     } catch {
       setError("Fotoğraf gönderilirken bir sorun oluştu, elle devam edebilirsin.");
     } finally {
@@ -311,6 +337,19 @@ function StepGarment({
                 {analysis.sleeveType && <p>Kol: {analysis.sleeveType}</p>}
                 {analysis.closure && <p>Kapama: {analysis.closure}</p>}
                 {analysis.notes && <p className="text-stone-500">{analysis.notes}</p>}
+                {(analysis.fit || analysis.sleeveOption || analysis.skirtSilhouette || analysis.necklineShape) && (
+                  <p className="text-emerald-700 dark:text-emerald-400 text-xs">
+                    ✓ Kalıbın gerçek şekline uygulandı: {[
+                      analysis.necklineShape && `yaka: ${NECKLINE_LABELS[analysis.necklineShape]}`,
+                      analysis.fit && `kesim: ${FIT_LABELS[analysis.fit]}`,
+                      analysis.sleeveOption && `kol boyu: ${SLEEVE_LABELS[analysis.sleeveOption]}`,
+                      analysis.skirtSilhouette && `siluet: ${SILHOUETTE_LABELS[analysis.skirtSilhouette]}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}{" "}
+                    (2. adımda değiştirebilirsin)
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -338,6 +377,7 @@ function StepGarment({
 const FIT_LABELS: Record<FitPreference, string> = { dar: "Dar / oturan", normal: "Normal", bol: "Bol / rahat" };
 const SLEEVE_LABELS: Record<SleeveOption, string> = { kolsuz: "Kolsuz", kisa: "Kısa kol", dirsek: "Dirsek boy", uzun: "Uzun kol" };
 const SILHOUETTE_LABELS: Record<SkirtSilhouette, string> = { duz: "Düz", "a-kesim": "A kesim (hafif açık)", kalem: "Kalem (dar)" };
+const NECKLINE_LABELS: Record<NecklineShape, string> = { yuvarlak: "Yuvarlak", "v-yaka": "V Yaka", kare: "Kare", kayik: "Kayık (geniş)" };
 const SKIRT_LENGTH_PRESETS = [
   { label: "Mini", cm: 42 },
   { label: "Diz üstü", cm: 55 },
@@ -424,6 +464,19 @@ function StepMeasurements({
             {(Object.keys(SLEEVE_LABELS) as SleeveOption[]).map((s) => (
               <Chip key={s} active={options.sleeve === s} onClick={() => onChangeOptions({ ...options, sleeve: s })}>
                 {SLEEVE_LABELS[s]}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hasBodice && (
+        <div>
+          <h3 className="font-medium mb-2">Yaka şekli</h3>
+          <div className="flex gap-2 flex-wrap">
+            {(Object.keys(NECKLINE_LABELS) as NecklineShape[]).map((n) => (
+              <Chip key={n} active={options.necklineShape === n} onClick={() => onChangeOptions({ ...options, necklineShape: n })}>
+                {NECKLINE_LABELS[n]}
               </Chip>
             ))}
           </div>

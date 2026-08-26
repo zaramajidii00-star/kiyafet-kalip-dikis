@@ -54,8 +54,31 @@ const GARMENT_SCHEMA = {
     sleeve_type: { type: "string", description: "Kol tipi, örn. 'kısa kol, hafif balon' — kolsuzsa 'kolsuz' yaz, üst parça değilse boş bırak." },
     closure: { type: "string", description: "Kapama şekli, örn. 'arka fermuar' ya da 'önden düğme'." },
     notes: { type: "string", description: "Ev dikişçisine kalıbı uyarlarken yardımcı olacak 1-2 cümlelik ek not." },
+    // Aşağıdaki alanlar SERBEST METİN DEĞİL — kalıbın gerçek geometrisini
+    // değiştirmek için doğrudan kullanılıyor. Bu yüzden sabit seçeneklerden
+    // (enum) biri seçilmeli.
+    fit: {
+      type: "string",
+      enum: ["dar", "normal", "bol"],
+      description: "Kıyafetin vücuda oturma sıkılığı: dar (bedene yapışık), normal, ya da bol/salaş.",
+    },
+    sleeve_option: {
+      type: "string",
+      enum: ["kolsuz", "kisa", "dirsek", "uzun"],
+      description: "Kol uzunluğu. Üst parça değilse ya da kolsuzsa 'kolsuz' yaz.",
+    },
+    skirt_silhouette: {
+      type: "string",
+      enum: ["duz", "a-kesim", "kalem"],
+      description: "Etek/alt kısmın siluet tipi: duz (dümdüz iniyor), a-kesim (aşağı doğru açılıyor/uçuşan), kalem (dar, vücuda yakın). Üst parça ise 'duz' yaz.",
+    },
+    neckline_shape: {
+      type: "string",
+      enum: ["yuvarlak", "v-yaka", "kare", "kayik"],
+      description: "Yaka şekli: yuvarlak (oval/bisiklet), v-yaka (V şeklinde sivri), kare (köşeli), kayik (geniş, sığ/bateau yaka). Üst parça değilse 'yuvarlak' yaz.",
+    },
   },
-  required: ["garment_type", "silhouette", "notes"],
+  required: ["garment_type", "silhouette", "notes", "fit", "sleeve_option", "skirt_silhouette", "neckline_shape"],
 };
 
 const ANALYZE_TOOL: Anthropic.Tool = {
@@ -143,19 +166,29 @@ export async function POST(request: Request) {
     sleeve_type?: string;
     closure?: string;
     notes?: string;
+    fit?: string;
+    sleeve_option?: string;
+    skirt_silhouette?: string;
+    neckline_shape?: string;
   };
   const input = toolUse.input as { garments?: RawGarment[] };
   const rawGarments = Array.isArray(input.garments) && input.garments.length > 0 ? input.garments.slice(0, 2) : [{}];
 
+  function pickEnum<T extends string>(value: string | undefined, options: readonly T[]): T | null {
+    return options.includes(value as T) ? (value as T) : null;
+  }
+
   const analyses: GarmentPhotoAnalysis[] = rawGarments.map((g) => ({
-    garmentType: ["etek", "bluz", "elbise"].includes(g.garment_type ?? "")
-      ? (g.garment_type as GarmentPhotoAnalysis["garmentType"])
-      : null,
+    garmentType: pickEnum(g.garment_type, ["etek", "bluz", "elbise"] as const),
     silhouette: g.silhouette ?? "",
     neckline: g.neckline ?? "",
     sleeveType: g.sleeve_type ?? "",
     closure: g.closure ?? "",
     notes: g.notes ?? "",
+    fit: pickEnum(g.fit, ["dar", "normal", "bol"] as const),
+    sleeveOption: pickEnum(g.sleeve_option, ["kolsuz", "kisa", "dirsek", "uzun"] as const),
+    skirtSilhouette: pickEnum(g.skirt_silhouette, ["duz", "a-kesim", "kalem"] as const),
+    necklineShape: pickEnum(g.neckline_shape, ["yuvarlak", "v-yaka", "kare", "kayik"] as const),
   }));
 
   return NextResponse.json({ analyses });
