@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PatternPreview, PrintPages } from "@/components/pattern";
 import { SewingDiagram, type DiagramKind } from "@/components/sewing-diagrams";
 import { buildDraftingGuide } from "@/lib/pattern-draft";
-import { downloadPatternPdf } from "@/lib/pattern-pdf";
+import { downloadOverviewPdf, downloadPatternPdf } from "@/lib/pattern-pdf";
 import {
   GARMENT_LABELS,
   buildInstructions,
@@ -614,6 +614,7 @@ function StepResult({
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showDraftGuide, setShowDraftGuide] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [overviewPdfBusy, setOverviewPdfBusy] = useState(false);
   const multiPiece = patternsByType.length > 1;
   const draftSections = useMemo(() => buildDraftingGuide(pattern.pieces), [pattern.pieces]);
   const sections = patternsByType.flatMap(({ type, pattern: piecePattern }) => {
@@ -629,6 +630,15 @@ function StepResult({
       await downloadPatternPdf(pattern.pieces);
     } finally {
       setPdfBusy(false);
+    }
+  }
+
+  async function handleDownloadOverviewPdf() {
+    setOverviewPdfBusy(true);
+    try {
+      await downloadOverviewPdf(pattern.pieces);
+    } finally {
+      setOverviewPdfBusy(false);
     }
   }
 
@@ -671,6 +681,14 @@ function StepResult({
           className="rounded-full bg-rose-600 disabled:opacity-60 text-white px-5 py-2.5 text-sm font-medium hover:bg-rose-700"
         >
           {pdfBusy ? "Hazırlanıyor…" : `📄 PDF İndir (içindekiler + ${totalPrintPages} sayfa, gerçek boy)`}
+        </button>
+        <button
+          type="button"
+          disabled={overviewPdfBusy}
+          onClick={handleDownloadOverviewPdf}
+          className="rounded-full border border-stone-300 dark:border-stone-700 disabled:opacity-60 px-5 py-2.5 text-sm font-medium"
+        >
+          {overviewPdfBusy ? "Hazırlanıyor…" : "📋 Tek Sayfa Özet PDF (küçük, ölçüler yazılı)"}
         </button>
         <button type="button" onClick={() => window.print()} className="rounded-full border border-stone-300 dark:border-stone-700 px-5 py-2.5 text-sm font-medium">
           🖨️ Tarayıcıdan Yazdır

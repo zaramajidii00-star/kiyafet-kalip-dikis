@@ -15,6 +15,7 @@ import {
   TILE_WIDTH_CM,
   boundingBox,
   computeTiles,
+  layoutPiecesForPreview,
   seamAllowancePath,
   segmentDimensionLabels,
   type PatternPiece,
@@ -67,8 +68,8 @@ function toPage(p: Pt, tile: Tile): Pt {
   return { x: p.x - tile.x, y: p.y - tile.y + TILE_HEADER_CM };
 }
 
-function drawClosedPath(doc: jsPDF, points: Pt[], tile: Tile) {
-  const pts = points.map((p) => toPage(p, tile));
+function drawClosedPath(doc: jsPDF, points: Pt[], transform: (p: Pt) => Pt) {
+  const pts = points.map(transform);
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i];
     const b = pts[(i + 1) % pts.length];
@@ -76,9 +77,9 @@ function drawClosedPath(doc: jsPDF, points: Pt[], tile: Tile) {
   }
 }
 
-function drawGrainline(doc: jsPDF, [a, b]: [Pt, Pt], tile: Tile) {
-  const pa = toPage(a, tile);
-  const pb = toPage(b, tile);
+function drawGrainline(doc: jsPDF, [a, b]: [Pt, Pt], transform: (p: Pt) => Pt, arrowLen: number) {
+  const pa = transform(a);
+  const pb = transform(b);
   doc.setDrawColor(...COLOR_SEAM);
   doc.setLineDashPattern([], 0);
   doc.line(pa.x, pa.y, pb.x, pb.y);
@@ -87,77 +88,91 @@ function drawGrainline(doc: jsPDF, [a, b]: [Pt, Pt], tile: Tile) {
     [pb, pa],
   ] as const) {
     const angle = Math.atan2(end.y - other.y, end.x - other.x);
-    const len = 0.9;
     for (const da of [2.6, -2.6]) {
       const a2 = angle + da;
-      doc.line(end.x, end.y, end.x + Math.cos(a2) * len, end.y + Math.sin(a2) * len);
+      doc.line(end.x, end.y, end.x + Math.cos(a2) * arrowLen, end.y + Math.sin(a2) * arrowLen);
     }
   }
 }
 
-function drawPiece(doc: jsPDF, piece: PatternPiece, tile: Tile, showLabel: boolean) {
+/**
+ * Bir parçayı verilen `transform` ile (gerçek boy sayfa içinde ya da
+ * küçültülmüş özet sayfasında) çizer. Çizgi kalınlıkları ve font boyutları
+ * SABİT tutulur (transform'la ölçeklenmez) — küçültülmüş özette bile
+ * okunur kalsın diye.
+ */
+function drawPiece(
+  doc: jsPDF,
+  piece: PatternPiece,
+  transform: (p: Pt) => Pt,
+  showLabel: boolean,
+  opts: { labelFontSize: number; kumasKatiFontSize: number; dimFontSize: number; arrowLen: number; notchR: number }
+) {
   // Kesim çizgisi (dikiş payı dahil) — kesikli, gül rengi.
   doc.setDrawColor(...COLOR_CUT);
   doc.setLineWidth(0.02);
   doc.setLineDashPattern([0.4, 0.25], 0);
-  drawClosedPath(doc, seamAllowancePath(piece), tile);
+  drawClosedPath(doc, seamAllowancePath(piece), transform);
 
   // Dikiş çizgisi — düz, koyu.
   doc.setDrawColor(...COLOR_SEAM);
   doc.setLineDashPattern([], 0);
   doc.setLineWidth(0.025);
-  drawClosedPath(doc, piece.seamLine, tile);
+  drawClosedPath(doc, piece.seamLine, transform);
 
   // Pensler
   doc.setDrawColor(...COLOR_DART);
   doc.setLineWidth(0.02);
   for (const dart of piece.darts) {
-    const [a, apex, b] = dart.points.map((p) => toPage(p, tile));
+    const [a, apex, b] = dart.points.map(transform);
     doc.line(a.x, a.y, apex.x, apex.y);
     doc.line(apex.x, apex.y, b.x, b.y);
   }
 
   // İp yönü oku
   doc.setLineWidth(0.02);
-  drawGrainline(doc, piece.grainline, tile);
+  drawGrainline(doc, piece.grainline, transform, opts.arrowLen);
 
   // Çentikler
   doc.setDrawColor(...COLOR_NOTCH);
   doc.setLineWidth(0.025);
   for (const n of piece.notches) {
-    const r = 0.35;
-    const at = toPage(n.at, tile);
+    const r = opts.notchR;
+    const at = transform(n.at);
     for (let j = 0; j < n.count; j++) {
-      doc.line(at.x - r + j * 0.3, at.y - r, at.x + r + j * 0.3, at.y + r);
+      doc.line(at.x - r + j * (r * 0.85), at.y - r, at.x + r + j * (r * 0.85), at.y + r);
     }
   }
 
   // Her kenarın gerçek cm uzunluğu
+  doc.setFont(FONT_NAME, "normal");
   doc.setTextColor(...COLOR_MUTED);
-  doc.setFontSize(6.5);
+  doc.setFontSize(opts.dimFontSize);
   for (const d of segmentDimensionLabels(piece)) {
     if (!d.text) continue;
-    const p = toPage(d.pos, tile);
+    const p = transform(d.pos);
     doc.text(d.text, p.x, p.y, { align: "center" });
   }
 
   if (showLabel) {
-    const anchor = toPage(piece.labelAnchor, tile);
+    const anchor = transform(piece.labelAnchor);
     doc.setFont(FONT_NAME, "bold");
     doc.setTextColor(...COLOR_SEAM);
-    doc.setFontSize(1.7 * CM_TO_PT);
+    doc.setFontSize(opts.labelFontSize);
     doc.text(piece.label, anchor.x, anchor.y, { align: "center" });
     doc.setFont(FONT_NAME, "normal");
 
     if (piece.cutOnFold) {
       const bbox = boundingBox(piece.seamLine);
-      const midY = toPage({ x: 0, y: (bbox.minY + bbox.maxY) / 2 }, tile).y;
+      const midY = transform({ x: 0, y: (bbox.minY + bbox.maxY) / 2 }).y;
       doc.setTextColor(...COLOR_CUT);
-      doc.setFontSize(1.4 * CM_TO_PT);
-      doc.text("KUMAŞ KATI", toPage({ x: 0, y: 0 }, tile).x, midY, { align: "center", angle: 90 });
+      doc.setFontSize(opts.kumasKatiFontSize);
+      doc.text("KUMAŞ KATI", transform({ x: 0, y: 0 }).x, midY, { align: "center", angle: 90 });
     }
   }
 }
+
+const REAL_SCALE_OPTS = { labelFontSize: 1.7 * CM_TO_PT, kumasKatiFontSize: 1.4 * CM_TO_PT, dimFontSize: 6.5, arrowLen: 0.9, notchR: 0.35 };
 
 function drawPageHeader(doc: jsPDF, piece: PatternPiece, tile: Tile, pageNum: number, totalPages: number) {
   doc.setFont(FONT_NAME, "bold");
@@ -259,7 +274,7 @@ export async function buildPatternPdf(pieces: PatternPiece[]): Promise<jsPDF> {
       pageNum++;
       doc.addPage("a4");
       drawPageHeader(doc, piece, tile, pageNum, totalPages);
-      drawPiece(doc, piece, tile, tile.row === 0 && tile.col === 0);
+      drawPiece(doc, piece, (p) => toPage(p, tile), tile.row === 0 && tile.col === 0, REAL_SCALE_OPTS);
     }
   }
 
@@ -268,5 +283,66 @@ export async function buildPatternPdf(pieces: PatternPiece[]): Promise<jsPDF> {
 
 export async function downloadPatternPdf(pieces: PatternPiece[], filename = "kalip-atolyesi.pdf") {
   const doc = await buildPatternPdf(pieces);
+  doc.save(filename);
+}
+
+/**
+ * KESİM İÇİN DEĞİL: tüm parçaları tek bir A4 sayfasına sığacak şekilde
+ * küçültülmüş olarak çizer — her kenarın üzerinde yine gerçek cm uzunluğu
+ * yazar (font/çizgi kalınlıkları küçülmüyor, sadece parçaların yerleşimi
+ * ölçekleniyor). Gazeteye elle çizerken ya da genel bir özet olarak
+ * kullanmak için; gerçek boyutlu kesim kalıbı için `downloadPatternPdf`.
+ */
+export async function buildOverviewPdf(pieces: PatternPiece[]): Promise<jsPDF> {
+  const doc = new jsPDF({ unit: "cm", format: "a4" });
+  await registerTurkishFont(doc);
+
+  const pageW = 21;
+  const pageH = 29.7;
+  const margin = 1.2;
+  const headerH = 2.3;
+
+  doc.setFont(FONT_NAME, "bold");
+  doc.setTextColor(...COLOR_SEAM);
+  doc.setFontSize(13);
+  doc.text("Kalıp Atölyesi — Küçültülmüş Özet", margin, 1.0);
+  doc.setFont(FONT_NAME, "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text(
+    "Bu sayfa gerçek boyutta DEĞİLDİR, kesim için kullanma — sadece genel görünüm. Her kenarın üzerinde " +
+      "o kenarın GERÇEK cm uzunluğu yazılıdır; gazeteye ya da kumaşa çizerken o rakamları kullan.",
+    margin,
+    1.5,
+    { maxWidth: pageW - margin * 2 }
+  );
+
+  // Dar parçalarda (ön beden gibi) "(Kumaşı İkiye Katla)" eki etiketi
+  // komşu parçaya taşırıyordu — bu bilgi zaten dönük "KUMAŞ KATI" yazısıyla
+  // veriliyor, o yüzden özet sayfasında sadece kısa adı kullanıyoruz.
+  const shortPieces = pieces.map((p) => ({ ...p, label: p.label.replace(/\s*\([^)]*\)\s*$/, "") }));
+
+  const { items, totalWidth, totalHeight } = layoutPiecesForPreview(shortPieces, 6);
+  const availW = pageW - margin * 2;
+  const availH = pageH - headerH - margin * 2;
+  const scale = Math.min(availW / totalWidth, availH / totalHeight, 1);
+  const offsetX = margin + (availW - totalWidth * scale) / 2;
+  const offsetY = headerH + margin;
+
+  const overviewOpts = { labelFontSize: 7, kumasKatiFontSize: 5.5, dimFontSize: 4.4, arrowLen: 0.35, notchR: 0.16 };
+
+  for (const item of items) {
+    const transform = (p: Pt): Pt => ({
+      x: offsetX + (item.offsetX + p.x) * scale,
+      y: offsetY + (item.offsetY + p.y) * scale,
+    });
+    drawPiece(doc, item.piece, transform, true, overviewOpts);
+  }
+
+  return doc;
+}
+
+export async function downloadOverviewPdf(pieces: PatternPiece[], filename = "kalip-atolyesi-ozet.pdf") {
+  const doc = await buildOverviewPdf(pieces);
   doc.save(filename);
 }
