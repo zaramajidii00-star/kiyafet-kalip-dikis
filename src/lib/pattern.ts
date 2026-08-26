@@ -29,6 +29,16 @@ export type Dart = {
   points: [Pt, Pt, Pt];
 };
 
+/** Elle (cetvelle) çizim rehberi için isimlendirilmiş bir köşe noktası. */
+export type DraftPoint = { id: string; label: string; point: Pt };
+
+/**
+ * İki köşe noktası arasındaki kenar — düzse cetvelle düz çizgi, değilse
+ * (yaka/kol oyuntusu gibi) elle yumuşak bir eğri çizilmesi gerektiğini
+ * belirtir.
+ */
+export type DraftSegment = { from: string; to: string; curve: boolean; note?: string };
+
 export type PatternPiece = {
   id: string;
   label: string;
@@ -40,6 +50,9 @@ export type PatternPiece = {
   notches: { at: Pt; count: 1 | 2 }[];
   labelAnchor: Pt;
   note?: string;
+  /** Elle çizim rehberi (Draft Guide) için: köşe noktaları + aralarındaki kenarlar. */
+  draftPoints: DraftPoint[];
+  draftSegments: DraftSegment[];
 };
 
 export type GarmentType = "etek" | "bluz" | "elbise";
@@ -318,6 +331,24 @@ function buildBackBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["no
     notches: [{ at: underarmPt, count: 1 }],
     labelAnchor: { x: round1(bq * 0.35), y: round1(waistLen * 0.5) },
     note: "Kumaşa yatırırken sırt ortası kumaş kenarına 1,5 cm dikiş payı ile kesilir (fermuar/açık sırt istersen kat yerine koyma).",
+    draftPoints: [
+      { id: "A", label: "Arka orta, ense", point: cbNeckPt },
+      { id: "B", label: "Boyun-omuz köşesi", point: neckShoulderPt },
+      { id: "C", label: "Omuz ucu", point: shoulderPt },
+      { id: "H", label: "Kol oyuntusu yardımcı noktası", point: acrossBackPt },
+      { id: "D", label: "Kol altı", point: underarmPt },
+      { id: "E", label: "Bel, yan taraf", point: waistSidePt },
+      { id: "F", label: "Arka orta, bel", point: cbWaistPt },
+    ],
+    draftSegments: [
+      { from: "A", to: "B", curve: true, note: "boyun çizgisi, hafif içbükey" },
+      { from: "B", to: "C", curve: false },
+      { from: "C", to: "H", curve: true, note: "kol oyuntusu eğrisinin başı" },
+      { from: "H", to: "D", curve: true, note: "kol oyuntusu eğrisinin devamı" },
+      { from: "D", to: "E", curve: false, note: "yan dikiş" },
+      { from: "E", to: "F", curve: false, note: "bel çizgisi" },
+      { from: "F", to: "A", curve: false, note: "arka orta çizgisi" },
+    ],
   };
 }
 
@@ -368,6 +399,24 @@ function buildFrontBodice(m: RawMeasurements, d: Derived, ease: (typeof EASE)["n
     notches: [{ at: underarmPt, count: 1 }],
     labelAnchor: { x: round1(fq * 0.35), y: round1(waistLen * 0.5) },
     note: "Bu basit kalıpta göğüs pensi tek bir bel pensiyle birleştirildi — daha oturan bir kesim için pens uçları göğüs noktanıza doğru kaydırılabilir.",
+    draftPoints: [
+      { id: "A", label: "Ön orta, yaka başı", point: cfNeckPt },
+      { id: "B", label: "Boyun-omuz köşesi", point: neckShoulderPt },
+      { id: "C", label: "Omuz ucu", point: shoulderPt },
+      { id: "H", label: "Kol oyuntusu yardımcı noktası", point: acrossFrontPt },
+      { id: "D", label: "Kol altı", point: underarmPt },
+      { id: "E", label: "Bel, yan taraf", point: waistSidePt },
+      { id: "F", label: "Ön orta, bel", point: cfWaistPt },
+    ],
+    draftSegments: [
+      { from: "A", to: "B", curve: true, note: "yaka çizgisi, belirgin içbükey" },
+      { from: "B", to: "C", curve: false },
+      { from: "C", to: "H", curve: true, note: "kol oyuntusu eğrisinin başı" },
+      { from: "H", to: "D", curve: true, note: "kol oyuntusu eğrisinin devamı" },
+      { from: "D", to: "E", curve: false, note: "yan dikiş" },
+      { from: "E", to: "F", curve: false, note: "bel çizgisi" },
+      { from: "F", to: "A", curve: false, note: "ön orta çizgisi" },
+    ],
   };
 }
 
@@ -393,8 +442,10 @@ function buildSleeve(m: RawMeasurements, d: Derived, opt: GarmentOptions, back: 
   const frontWristPt: Pt = { x: wristHalf, y: length };
   const backWristPt: Pt = { x: -wristHalf, y: length };
 
-  const frontCapCurve = sampleQuadraticBezier(frontUnderarm, { x: bicep * 0.26, y: -capHeight * 0.55 }, capTop, 5);
-  const backCapCurve = sampleQuadraticBezier(capTop, { x: -bicep * 0.32, y: -capHeight * 0.62 }, backUnderarm, 5);
+  const frontCapControl: Pt = { x: bicep * 0.26, y: -capHeight * 0.55 };
+  const backCapControl: Pt = { x: -bicep * 0.32, y: -capHeight * 0.62 };
+  const frontCapCurve = sampleQuadraticBezier(frontUnderarm, frontCapControl, capTop, 5);
+  const backCapCurve = sampleQuadraticBezier(capTop, backCapControl, backUnderarm, 5);
 
   const seamLine: Pt[] = [capTop, ...frontCapCurve.reverse(), frontUnderarm, frontWristPt, backWristPt, backUnderarm, ...backCapCurve];
 
@@ -415,6 +466,24 @@ function buildSleeve(m: RawMeasurements, d: Derived, opt: GarmentOptions, back: 
     ],
     labelAnchor: { x: 0, y: round1(length * 0.4) },
     note: "Tek çentik ön beden kol oyuntusuna, çift çentik arka beden kol oyuntusuna eşleşir.",
+    draftPoints: [
+      { id: "A", label: "Kol kapağı tepe noktası", point: capTop },
+      { id: "H1", label: "Ön kapak yardımcı noktası", point: frontCapControl },
+      { id: "B", label: "Ön kol altı (tek çentikli taraf)", point: frontUnderarm },
+      { id: "C", label: "Ön bilek ucu", point: frontWristPt },
+      { id: "D", label: "Arka bilek ucu", point: backWristPt },
+      { id: "E", label: "Arka kol altı (çift çentikli taraf)", point: backUnderarm },
+      { id: "H2", label: "Arka kapak yardımcı noktası", point: backCapControl },
+    ],
+    draftSegments: [
+      { from: "A", to: "H1", curve: true, note: "ön kapak eğrisinin başı" },
+      { from: "H1", to: "B", curve: true, note: "ön kapak eğrisinin devamı — daha düz iner" },
+      { from: "B", to: "C", curve: false, note: "ön kol altı çizgisi" },
+      { from: "C", to: "D", curve: false, note: "bilek/kol ucu çizgisi" },
+      { from: "D", to: "E", curve: false, note: "arka kol altı çizgisi" },
+      { from: "E", to: "H2", curve: true, note: "arka kapak eğrisinin başı — daha dolgun" },
+      { from: "H2", to: "A", curve: true, note: "arka kapak eğrisinin devamı" },
+    ],
   };
 }
 
@@ -442,6 +511,7 @@ function buildSkirtPanel(side: "on" | "arka", m: RawMeasurements, height: number
   const dartCenterX = round1(waistSideX * 0.5);
   const dart = makeDart(dartCenterX, 0, dartBaseWidth, round1(Math.min(hipDepth - 2, 11)));
 
+  const centerLabel = side === "on" ? "Ön orta" : "Arka orta";
   const label = side === "on" ? "Ön Etek" : "Arka Etek";
   return {
     id: side === "on" ? "on-etek" : "arka-etek",
@@ -457,6 +527,20 @@ function buildSkirtPanel(side: "on" | "arka", m: RawMeasurements, height: number
     notches: [{ at: hipPt, count: 1 }],
     labelAnchor: { x: round1(hipQ * 0.4), y: round1(hemDepth * 0.5) },
     note: side === "arka" ? "Fermuar için arka orta dikişin üst kısmını (yakl. 18 cm) açık bırakın." : undefined,
+    draftPoints: [
+      { id: "A", label: `${centerLabel}, bel`, point: cfWaistPt },
+      { id: "B", label: "Bel, yan taraf", point: waistSidePt },
+      { id: "C", label: "Kalça, yan taraf", point: hipPt },
+      { id: "D", label: "Etek ucu, yan taraf", point: hemSidePt },
+      { id: "E", label: `${centerLabel}, etek ucu`, point: hemCenterPt },
+    ],
+    draftSegments: [
+      { from: "A", to: "B", curve: false, note: "bel çizgisi" },
+      { from: "B", to: "C", curve: false, note: "yan dikiş, kalçaya kadar" },
+      { from: "C", to: "D", curve: false, note: "yan dikiş, kalçadan etek ucuna" },
+      { from: "D", to: "E", curve: false, note: "etek ucu çizgisi" },
+      { from: "E", to: "A", curve: false, note: `${centerLabel.toLowerCase()} çizgisi` },
+    ],
   };
 }
 

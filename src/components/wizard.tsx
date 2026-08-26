@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PatternPreview, PrintPages } from "@/components/pattern";
+import { buildDraftingGuide } from "@/lib/pattern-draft";
 import { downloadPatternPdf } from "@/lib/pattern-pdf";
 import {
   GARMENT_LABELS,
@@ -557,8 +558,10 @@ function StepResult({
   onRestart: () => void;
 }) {
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showDraftGuide, setShowDraftGuide] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const multiPiece = patternsByType.length > 1;
+  const draftSections = useMemo(() => buildDraftingGuide(pattern.pieces), [pattern.pieces]);
   const sections = patternsByType.flatMap(({ type, pattern: piecePattern }) => {
     const matchedAnalysis = analyses.find((a) => a.garmentType === type) ?? null;
     const sub = buildInstructions({ ...options, garmentType: type }, piecePattern, matchedAnalysis);
@@ -621,7 +624,40 @@ function StepResult({
         <button type="button" onClick={() => setShowPrintPreview((s) => !s)} className="rounded-full border border-stone-300 dark:border-stone-700 px-5 py-2.5 text-sm font-medium">
           {showPrintPreview ? "Yazdırma Önizlemesini Gizle" : "Yazdırma Önizlemesini Göster"}
         </button>
+        <button
+          type="button"
+          onClick={() => setShowDraftGuide((s) => !s)}
+          className="rounded-full border border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400 px-5 py-2.5 text-sm font-medium"
+        >
+          {showDraftGuide ? "✏️ Elle Çizim Rehberini Gizle" : "✏️ Yazıcı Yok — Elle Çizim Rehberi"}
+        </button>
       </div>
+
+      {showDraftGuide && (
+        <div className="print:hidden space-y-3">
+          <div>
+            <h3 className="text-lg font-semibold">Kalıbı elle nasıl çizersin?</h3>
+            <p className="text-sm text-stone-500">
+              Yazıcın yoksa: sadece bir cetvel (mümkünse 1 metrelik terzi cetveli), bir gönye/kitap köşesi (dik açı
+              için) ve gazete gibi geniş bir kağıtla, her parçayı aşağıdaki ölçülerle çizebilirsin. Her nokta,
+              parçanın &quot;A&quot; noktasından (sağa/aşağı) ölçülüyor — böylece küçük hatalar birikmez.
+            </p>
+          </div>
+          {draftSections.map((section) => (
+            <details key={section.heading} className="rounded-2xl border border-emerald-200 dark:border-emerald-900 p-4">
+              <summary className="font-medium cursor-pointer">{section.heading}</summary>
+              <ol className="mt-3 space-y-3 list-decimal list-inside">
+                {section.steps.map((step, i) => (
+                  <li key={`${step.title}-${i}`}>
+                    <span className="font-medium">{step.title}.</span>{" "}
+                    <span className="text-stone-600 dark:text-stone-400">{step.detail}</span>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          ))}
+        </div>
+      )}
 
       <div className="print:hidden space-y-3">
         <h3 className="text-lg font-semibold">Nasıl dikeceksin?</h3>
