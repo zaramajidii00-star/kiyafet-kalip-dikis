@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PatternPreview, PrintPages } from "@/components/pattern";
+import { downloadPatternPdf } from "@/lib/pattern-pdf";
 import {
   GARMENT_LABELS,
   buildInstructions,
@@ -492,8 +493,18 @@ function StepResult({
   onRestart: () => void;
 }) {
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const sections = buildInstructions(options, pattern, analysis);
   const totalPrintPages = useMemo(() => pattern.pieces.reduce((sum, p) => sum + computeTiles(p).length, 0), [pattern.pieces]);
+
+  async function handleDownloadPdf() {
+    setPdfBusy(true);
+    try {
+      await downloadPatternPdf(pattern.pieces);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -527,8 +538,16 @@ function StepResult({
       </div>
 
       <div className="print:hidden flex flex-wrap gap-2">
-        <button type="button" onClick={() => window.print()} className="rounded-full bg-rose-600 text-white px-5 py-2.5 text-sm font-medium hover:bg-rose-700">
-          🖨️ Gerçek Boyutta Yazdır ({totalPrintPages} sayfa)
+        <button
+          type="button"
+          disabled={pdfBusy}
+          onClick={handleDownloadPdf}
+          className="rounded-full bg-rose-600 disabled:opacity-60 text-white px-5 py-2.5 text-sm font-medium hover:bg-rose-700"
+        >
+          {pdfBusy ? "Hazırlanıyor…" : `📄 PDF İndir (${totalPrintPages} sayfa, gerçek boy)`}
+        </button>
+        <button type="button" onClick={() => window.print()} className="rounded-full border border-stone-300 dark:border-stone-700 px-5 py-2.5 text-sm font-medium">
+          🖨️ Tarayıcıdan Yazdır
         </button>
         <button type="button" onClick={() => setShowPrintPreview((s) => !s)} className="rounded-full border border-stone-300 dark:border-stone-700 px-5 py-2.5 text-sm font-medium">
           {showPrintPreview ? "Yazdırma Önizlemesini Gizle" : "Yazdırma Önizlemesini Göster"}

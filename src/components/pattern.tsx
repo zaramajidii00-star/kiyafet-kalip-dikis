@@ -3,6 +3,7 @@ import {
   TILE_HEADER_CM,
   TILE_HEIGHT_CM,
   TILE_WIDTH_CM,
+  boundingBox,
   computeTiles,
   dartToPath,
   layoutPiecesForPreview,
@@ -108,9 +109,14 @@ export function PatternPieceSvg({
       })}
 
       {showLabels && (
-        <text x={piece.labelAnchor.x} y={piece.labelAnchor.y} fontSize={1.7} textAnchor="middle" className="fill-stone-900 dark:fill-stone-100 font-medium">
-          {piece.label}
-        </text>
+        <>
+          <text x={piece.labelAnchor.x} y={piece.labelAnchor.y} fontSize={1.7} textAnchor="middle" className="fill-stone-900 dark:fill-stone-100 font-medium">
+            {piece.label}
+          </text>
+          <text x={piece.labelAnchor.x} y={piece.labelAnchor.y + 2.1} fontSize={1.3} textAnchor="middle" className="fill-stone-500">
+            {pieceDimensionLabel(piece)}
+          </text>
+        </>
       )}
     </g>
   );
@@ -121,18 +127,53 @@ function pointsBoundsMidY(piece: PatternPiece) {
   return (Math.min(...ys) + Math.max(...ys)) / 2;
 }
 
-/** Ekranda tüm parçaları tek bakışta gösteren, gerçek oranlı (ama ölçeksiz) önizleme. */
+function pieceDimensionLabel(piece: PatternPiece) {
+  const bbox = boundingBox(piece.seamLine);
+  return `~${Math.round(bbox.width)} × ${Math.round(bbox.height)} cm`;
+}
+
+/** Ekranda tüm parçaları tek bakışta gösteren, gerçek oranlı, cm cetvelli önizleme. */
 export function PatternPreview({ pieces }: { pieces: PatternPiece[] }) {
   const { items, totalWidth, totalHeight } = layoutPiecesForPreview(pieces);
   const pad = 4;
+  const minX = -pad;
+  const minY = -pad;
+  const maxX = totalWidth + pad;
+  const maxY = totalHeight + pad;
+  const gridId = "cm-grid";
+
+  const vTicks: number[] = [];
+  for (let x = Math.ceil(minX / 10) * 10; x <= maxX; x += 10) vTicks.push(x);
+  const hTicks: number[] = [];
+  for (let y = Math.ceil(minY / 10) * 10; y <= maxY; y += 10) hTicks.push(y);
 
   return (
     <svg
-      viewBox={`${-pad} ${-pad} ${totalWidth + pad * 2} ${totalHeight + pad * 2}`}
+      viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
       className="w-full h-auto max-h-[70vh] rounded-2xl border border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-950"
       role="img"
-      aria-label="Kalıp parçaları önizlemesi"
+      aria-label="Kalıp parçaları önizlemesi, cm cetveliyle"
     >
+      <defs>
+        <pattern id={gridId} width={10} height={10} patternUnits="userSpaceOnUse">
+          <path d="M 10 0 L 0 0 0 10" fill="none" stroke="currentColor" strokeWidth={0.04} className="text-stone-200 dark:text-stone-800" />
+        </pattern>
+      </defs>
+      <rect x={minX} y={minY} width={maxX - minX} height={maxY - minY} fill={`url(#${gridId})`} />
+      {vTicks.map((x) => (
+        <text key={`vx${x}`} x={x} y={maxY - 0.6} fontSize={1.3} textAnchor="middle" className="fill-stone-400">
+          {x}
+        </text>
+      ))}
+      {hTicks.map((y) => (
+        <text key={`hy${y}`} x={minX + 0.4} y={y + 0.4} fontSize={1.3} className="fill-stone-400">
+          {y}
+        </text>
+      ))}
+      <text x={maxX - 1} y={maxY - 0.6} fontSize={1.3} textAnchor="end" className="fill-stone-400">
+        cm
+      </text>
+
       {items.map((item) => (
         <PatternPieceSvg key={item.piece.id} piece={item.piece} offsetX={item.offsetX} offsetY={item.offsetY} />
       ))}
