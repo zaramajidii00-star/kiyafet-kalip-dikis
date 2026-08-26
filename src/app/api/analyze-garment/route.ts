@@ -40,24 +40,43 @@ const SUPPORTED_IMAGE_MEDIA_TYPES: Record<string, "image/jpeg" | "image/png" | "
   "image/webp": "image/webp",
 };
 
+const GARMENT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    garment_type: {
+      type: "string",
+      enum: ["etek", "bluz", "elbise", "belirsiz"],
+      description:
+        "Bu tek parçanın en yakın temel tipi. Pantolon/ceket gibi desteklenmeyen bir tipse 'belirsiz' yaz.",
+    },
+    silhouette: { type: "string", description: "Genel siluet, örn. 'A kesim, belden hafif oturan'." },
+    neckline: { type: "string", description: "Yaka tipi, örn. 'V yaka' — üst giyilebilir bir parça değilse boş bırak." },
+    sleeve_type: { type: "string", description: "Kol tipi, örn. 'kısa kol, hafif balon' — kolsuzsa 'kolsuz' yaz, üst parça değilse boş bırak." },
+    closure: { type: "string", description: "Kapama şekli, örn. 'arka fermuar' ya da 'önden düğme'." },
+    notes: { type: "string", description: "Ev dikişçisine kalıbı uyarlarken yardımcı olacak 1-2 cümlelik ek not." },
+  },
+  required: ["garment_type", "silhouette", "notes"],
+};
+
 const ANALYZE_TOOL: Anthropic.Tool = {
-  name: "describe_garment",
-  description: "Fotoğraftaki kıyafeti kalıp çıkarmak amacıyla analiz edip kısa, yapılandırılmış bir açıklama üretir.",
+  name: "describe_garments",
+  description:
+    "Fotoğraftaki kıyafet(ler)i kalıp çıkarmak amacıyla analiz edip kısa, yapılandırılmış bir açıklama üretir. " +
+    "Fotoğrafta birbirinden bağımsız giyilen İKİ parça varsa (örn. bir bluz + bir etek/pantolon, ayrı ayrı " +
+    "giyiliyorlarsa) garments dizisinde İKİ ayrı öğe döndür. Tek parça, bitişik bir kıyafetse (elbise, tulum, " +
+    "ya da tek başına bir etek/bluz) dizide SADECE BİR öğe olsun.",
   input_schema: {
     type: "object",
     properties: {
-      garment_type: {
-        type: "string",
-        enum: ["etek", "bluz", "elbise", "belirsiz"],
-        description: "Kıyafetin en yakın temel tipi. Pantolon/ceket gibi desteklenmeyen bir tipse 'belirsiz' yaz.",
+      garments: {
+        type: "array",
+        items: GARMENT_SCHEMA,
+        minItems: 1,
+        maxItems: 2,
+        description: "Fotoğraftaki her bağımsız parça için bir öğe (en fazla 2).",
       },
-      silhouette: { type: "string", description: "Genel siluet, örn. 'A kesim, belden hafif oturan'." },
-      neckline: { type: "string", description: "Yaka tipi, örn. 'V yaka' — üst giyilebilir bir parça değilse boş bırak." },
-      sleeve_type: { type: "string", description: "Kol tipi, örn. 'kısa kol, hafif balon' — kolsuzsa 'kolsuz' yaz." },
-      closure: { type: "string", description: "Kapama şekli, örn. 'arka fermuar' ya da 'önden düğme'." },
-      notes: { type: "string", description: "Ev dikişçisine kalıbı uyarlarken yardımcı olacak 1-2 cümlelik ek not." },
     },
-    required: ["garment_type", "silhouette", "notes"],
+    required: ["garments"],
   },
 };
 
@@ -86,24 +105,26 @@ export async function POST(request: Request) {
   try {
     response = await anthropic.messages.create({
       model: PHOTO_ANALYSIS_MODEL,
-      max_tokens: 512,
+      max_tokens: 768,
       thinking: { type: "disabled" },
       system:
         "Sen bir terzi/kalıpçı asistanısın. Sana beğenilen bir kıyafetin fotoğrafı gösteriliyor. " +
-        "Amacın, ev dikişçisinin bu kıyafete benzer basit bir temel kalıp (etek/bluz/elbise) " +
-        "seçebilmesi için kıyafeti kısaca analiz etmek. describe_garment aracını kullanarak cevap ver. " +
+        "Amacın, ev dikişçisinin bu kıyafete(lere) benzer basit birer temel kalıp (etek/bluz/elbise) " +
+        "seçebilmesi için kıyafeti/kıyafetleri kısaca analiz etmek. Fotoğrafta üstü ve altı ayrı giyilen " +
+        "iki parça (örn. bluz+etek, üst+pantolon) varsa bunları İKİ AYRI parça olarak değerlendir; tek " +
+        "parça bir elbise/tulum ise TEK öğe döndür. describe_garments aracını kullanarak cevap ver. " +
         "Emin olmadığın alanları uydurma, kısa ve net yaz.",
       messages: [
         {
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data: body.image } },
-            { type: "text", text: "Bu kıyafeti analiz et." },
+            { type: "text", text: "Bu kıyafeti/kıyafetleri analiz et." },
           ],
         },
       ],
       tools: [ANALYZE_TOOL],
-      tool_choice: { type: "tool", name: "describe_garment" },
+      tool_choice: { type: "tool", name: "describe_garments" },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "bilinmeyen hata";
@@ -115,7 +136,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Fotoğraf analiz edilemedi, tekrar dene." }, { status: 502 });
   }
 
-  const input = toolUse.input as {
+  type RawGarment = {
     garment_type?: string;
     silhouette?: string;
     neckline?: string;
@@ -123,19 +144,19 @@ export async function POST(request: Request) {
     closure?: string;
     notes?: string;
   };
+  const input = toolUse.input as { garments?: RawGarment[] };
+  const rawGarments = Array.isArray(input.garments) && input.garments.length > 0 ? input.garments.slice(0, 2) : [{}];
 
-  const garmentType = ["etek", "bluz", "elbise"].includes(input.garment_type ?? "")
-    ? (input.garment_type as GarmentPhotoAnalysis["garmentType"])
-    : null;
+  const analyses: GarmentPhotoAnalysis[] = rawGarments.map((g) => ({
+    garmentType: ["etek", "bluz", "elbise"].includes(g.garment_type ?? "")
+      ? (g.garment_type as GarmentPhotoAnalysis["garmentType"])
+      : null,
+    silhouette: g.silhouette ?? "",
+    neckline: g.neckline ?? "",
+    sleeveType: g.sleeve_type ?? "",
+    closure: g.closure ?? "",
+    notes: g.notes ?? "",
+  }));
 
-  const analysis: GarmentPhotoAnalysis = {
-    garmentType,
-    silhouette: input.silhouette ?? "",
-    neckline: input.neckline ?? "",
-    sleeveType: input.sleeve_type ?? "",
-    closure: input.closure ?? "",
-    notes: input.notes ?? "",
-  };
-
-  return NextResponse.json({ analysis });
+  return NextResponse.json({ analyses });
 }

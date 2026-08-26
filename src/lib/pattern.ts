@@ -504,6 +504,22 @@ export function estimateFabricLength(pieces: PatternPiece[], fabricWidth: number
   return Math.ceil((total + 20) / 10) * 10;
 }
 
+/**
+ * Fotoğrafta birbirinden bağımsız iki parça varsa (örn. bluz + etek), her
+ * biri için ayrı ayrı `generatePattern` çağrılır; bu fonksiyon sonuçları
+ * tek bir kalıp/PDF/yazdırma önizlemesinde göstermek üzere birleştirir.
+ * Kumaş tahmini her parçanınkinin toplamı — vücut ölçüleri (derived) aynı
+ * olduğundan ilk parçanınki kullanılır.
+ */
+export function combinePatterns(patterns: GeneratedPattern[]): GeneratedPattern {
+  return {
+    pieces: patterns.flatMap((p) => p.pieces),
+    seamAllowanceCm: patterns[0].seamAllowanceCm,
+    fabricEstimateCm: patterns.reduce((sum, p) => sum + p.fabricEstimateCm, 0),
+    derived: patterns[0].derived,
+  };
+}
+
 export const GARMENT_LABELS: Record<GarmentType, string> = {
   etek: "Etek",
   bluz: "Bluz / Gömlek",

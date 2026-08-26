@@ -6,6 +6,7 @@ import { downloadPatternPdf } from "@/lib/pattern-pdf";
 import {
   GARMENT_LABELS,
   buildInstructions,
+  combinePatterns,
   computeTiles,
   deriveMeasurements,
   generatePattern,
@@ -31,7 +32,9 @@ const DEFAULT_OPTIONS: Omit<GarmentOptions, "garmentType"> = {
 };
 
 type OptionsState = Omit<GarmentOptions, "garmentType">;
-type StoredProfile = { measurements: RawMeasurements; options: OptionsState; garmentType: GarmentType };
+type StoredProfile = { measurements: RawMeasurements; options: OptionsState; garmentTypes: GarmentType[] };
+/** Kalıp çıkarılan her parça, kendi tipiyle eşleşmiş halde — ayrı ayrı dikiş talimatı üretmek için. */
+type PatternByType = { type: GarmentType; pattern: GeneratedPattern };
 
 // ---------------------------------------------------------------------------
 // Ana sihirbaz
@@ -39,11 +42,11 @@ type StoredProfile = { measurements: RawMeasurements; options: OptionsState; gar
 
 export function AtolyeApp() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [garmentType, setGarmentType] = useState<GarmentType>("elbise");
-  const [analysis, setAnalysis] = useState<GarmentPhotoAnalysis | null>(null);
+  const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>(["elbise"]);
+  const [analyses, setAnalyses] = useState<GarmentPhotoAnalysis[]>([]);
   const [measurements, setMeasurements] = useState<RawMeasurements>(DEFAULT_MEASUREMENTS);
   const [options, setOptions] = useState<OptionsState>(DEFAULT_OPTIONS);
-  const [pattern, setPattern] = useState<GeneratedPattern | null>(null);
+  const [patternsByType, setPatternsByType] = useState<PatternByType[]>([]);
 
   // İlk render'da (sunucu tarafında) localStorage yok — hydration uyuşmazlığı
   // olmaması için varsayılanlarla başlayıp kayıtlı profili mount sonrası bir
@@ -56,7 +59,7 @@ export function AtolyeApp() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- mount sonrası tek seferlik localStorage okuması, döngüye girmiyor
       if (saved.measurements) setMeasurements(saved.measurements);
       if (saved.options) setOptions(saved.options);
-      if (saved.garmentType) setGarmentType(saved.garmentType);
+      if (saved.garmentTypes?.length) setGarmentTypes(saved.garmentTypes);
     } catch {
       // kayıtlı profil bozuksa sessizce yok say, varsayılanlarla devam
     }
@@ -64,7 +67,7 @@ export function AtolyeApp() {
 
   function persist(next: Partial<StoredProfile>) {
     try {
-      const current: StoredProfile = { measurements, options, garmentType, ...next };
+      const current: StoredProfile = { measurements, options, garmentTypes, ...next };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
     } catch {
       // localStorage kapalıysa (gizli sekme vb.) sorun değil, sadece kaydedilmez
@@ -72,17 +75,25 @@ export function AtolyeApp() {
   }
 
   function handleGenerate() {
-    const generated = generatePattern(measurements, { ...options, garmentType });
-    setPattern(generated);
-    persist({ measurements, options, garmentType });
+    const generated = garmentTypes.map((type) => ({
+      type,
+      pattern: generatePattern(measurements, { ...options, garmentType: type }),
+    }));
+    setPatternsByType(generated);
+    persist({ measurements, options, garmentTypes });
     setStep(3);
   }
 
   function handleRestart() {
     setStep(1);
-    setPattern(null);
-    setAnalysis(null);
+    setPatternsByType([]);
+    setAnalyses([]);
   }
+
+  const combinedPattern = useMemo(
+    () => (patternsByType.length ? combinePatterns(patternsByType.map((p) => p.pattern)) : null),
+    [patternsByType]
+  );
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
@@ -102,12 +113,12 @@ export function AtolyeApp() {
       </ol>
 
       {step === 1 && (
-        <StepGarment garmentType={garmentType} onChangeType={setGarmentType} analysis={analysis} onAnalysis={setAnalysis} onNext={() => setStep(2)} />
+        <StepGarment garmentTypes={garmentTypes} onChangeTypes={setGarmentTypes} analyses={analyses} onAnalyses={setAnalyses} onNext={() => setStep(2)} />
       )}
 
       {step === 2 && (
         <StepMeasurements
-          garmentType={garmentType}
+          garmentTypes={garmentTypes}
           measurements={measurements}
           onChangeMeasurements={setMeasurements}
           options={options}
@@ -117,8 +128,15 @@ export function AtolyeApp() {
         />
       )}
 
-      {step === 3 && pattern && (
-        <StepResult pattern={pattern} options={{ ...options, garmentType }} analysis={analysis} onBack={() => setStep(2)} onRestart={handleRestart} />
+      {step === 3 && combinedPattern && (
+        <StepResult
+          pattern={combinedPattern}
+          patternsByType={patternsByType}
+          options={options}
+          analyses={analyses}
+          onBack={() => setStep(2)}
+          onRestart={handleRestart}
+        />
       )}
     </div>
   );
@@ -131,20 +149,20 @@ export function AtolyeApp() {
 const CARDS: { type: GarmentType; emoji: string; hint: string }[] = [
   { type: "etek", emoji: "👗", hint: "Sadece alt parça, bel-etek ucu" },
   { type: "bluz", emoji: "👚", hint: "Üst parça, kollu/kolsuz" },
-  { type: "elbise", emoji: "👗", hint: "Beden + etek tek parça" },
+  { type: "elbise", emoji: "👗", hint: "Beden + etek TEK PARÇA (bağlantılı)" },
 ];
 
 function StepGarment({
-  garmentType,
-  onChangeType,
-  analysis,
-  onAnalysis,
+  garmentTypes,
+  onChangeTypes,
+  analyses,
+  onAnalyses,
   onNext,
 }: {
-  garmentType: GarmentType;
-  onChangeType: (t: GarmentType) => void;
-  analysis: GarmentPhotoAnalysis | null;
-  onAnalysis: (a: GarmentPhotoAnalysis | null) => void;
+  garmentTypes: GarmentType[];
+  onChangeTypes: (t: GarmentType[]) => void;
+  analyses: GarmentPhotoAnalysis[];
+  onAnalyses: (a: GarmentPhotoAnalysis[]) => void;
   onNext: () => void;
 }) {
   const [analyzing, setAnalyzing] = useState(false);
@@ -152,10 +170,23 @@ function StepGarment({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // "Elbise" (bağlantılı tek parça) diğerleriyle birlikte seçilemez — ya
+  // "Elbise" tek başına, ya da "Etek"/"Bluz" bağımsız parçalar olarak
+  // istenildiği kadar (en fazla ikisi) bir arada seçilebilir.
+  function toggleType(type: GarmentType) {
+    if (type === "elbise") {
+      onChangeTypes(garmentTypes.includes("elbise") ? [] : ["elbise"]);
+      return;
+    }
+    const withoutElbise = garmentTypes.filter((t) => t !== "elbise");
+    const next = withoutElbise.includes(type) ? withoutElbise.filter((t) => t !== type) : [...withoutElbise, type];
+    onChangeTypes(next);
+  }
+
   async function handleFile(file: File) {
     setError(null);
     setAnalyzing(true);
-    onAnalysis(null);
+    onAnalyses([]);
     setPreviewUrl(URL.createObjectURL(file));
 
     try {
@@ -176,9 +207,16 @@ function StepGarment({
         setError(data.error ?? "Fotoğraf analiz edilemedi.");
         return;
       }
-      const result = data.analysis as GarmentPhotoAnalysis;
-      onAnalysis(result);
-      if (result.garmentType) onChangeType(result.garmentType);
+      const results = data.analyses as GarmentPhotoAnalysis[];
+      onAnalyses(results);
+      const detectedTypes = results.map((r) => r.garmentType).filter((t): t is GarmentType => t !== null);
+      if (detectedTypes.length === 1) {
+        onChangeTypes(detectedTypes);
+      } else if (detectedTypes.length > 1) {
+        // İki bağımsız parça tespit edildiyse "elbise"yi hiç seçme —
+        // Etek + Bluz gibi ayrı ayrı seçili olsunlar.
+        onChangeTypes([...new Set(detectedTypes.filter((t) => t !== "elbise"))]);
+      }
     } catch {
       setError("Fotoğraf gönderilirken bir sorun oluştu, elle devam edebilirsin.");
     } finally {
@@ -190,15 +228,18 @@ function StepGarment({
     <div className="space-y-8">
       <div>
         <h2 className="text-lg font-semibold mb-1">1. Ne dikmek istiyorsun?</h2>
-        <p className="text-sm text-stone-500 mb-4">Bir kıyafet tipi seç — sonraki adımda ölçülerine göre kalıbını çıkaracağız.</p>
+        <p className="text-sm text-stone-500 mb-4">
+          Bir ya da birden fazla kıyafet tipi seç (örn. fotoğrafta bluz + etek gibi 2 ayrı parça varsa ikisini de
+          işaretle) — her biri için ayrı ayrı kalıp çıkaracağız.
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {CARDS.map((c) => (
             <button
               key={c.type}
               type="button"
-              onClick={() => onChangeType(c.type)}
+              onClick={() => toggleType(c.type)}
               className={`text-left rounded-2xl border p-4 transition ${
-                garmentType === c.type
+                garmentTypes.includes(c.type)
                   ? "border-rose-500 bg-rose-50 dark:bg-rose-950/30 ring-1 ring-rose-500"
                   : "border-stone-200 dark:border-stone-800 hover:border-rose-300"
               }`}
@@ -209,13 +250,20 @@ function StepGarment({
             </button>
           ))}
         </div>
+        {garmentTypes.length > 1 && (
+          <p className="text-xs text-rose-600 mt-2">
+            {garmentTypes.map((t) => GARMENT_LABELS[t]).join(" + ")} — ikisi için de bağımsız, ayrı kalıp ve
+            talimat çıkacak.
+          </p>
+        )}
       </div>
 
       <div className="rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 p-4">
         <h3 className="font-medium mb-1">İsteğe bağlı: beğendiğin kıyafetin fotoğrafını yükle</h3>
         <p className="text-sm text-stone-500 mb-3">
-          Yapay zeka fotoğrafa bakıp kıyafet tipini ve stil detaylarını (yaka, kol, kapama) tahmin etmeye çalışır.
-          Fotoğraf yüklemesen de elle seçim yaparak devam edebilirsin.
+          Yapay zeka fotoğrafa bakıp kıyafet tipini/tiplerini ve stil detaylarını (yaka, kol, kapama) tahmin etmeye
+          çalışır. Fotoğrafta ayrı ayrı giyilen 2 parça (örn. bluz + etek) varsa ikisini de tanıyıp yukarıdan otomatik
+          işaretler. Fotoğraf yüklemesen de elle seçim yaparak devam edebilirsin.
         </p>
         <div className="flex items-center gap-3 flex-wrap">
           <input
@@ -242,24 +290,38 @@ function StepGarment({
           )}
         </div>
         {error && <p className="text-sm text-amber-600 mt-2">{error}</p>}
-        {analysis && (
-          <div className="mt-3 text-sm bg-stone-50 dark:bg-stone-900 rounded-xl p-3 space-y-1">
-            {analysis.garmentType && (
-              <p>
-                Tahmin edilen tip: <strong>{GARMENT_LABELS[analysis.garmentType]}</strong> (yukarıda otomatik seçildi, istersen değiştirebilirsin)
-              </p>
+        {analyses.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {analyses.length > 1 && (
+              <p className="text-sm font-medium">Fotoğrafta {analyses.length} ayrı parça tespit edildi:</p>
             )}
-            {analysis.silhouette && <p>Siluet: {analysis.silhouette}</p>}
-            {analysis.neckline && <p>Yaka: {analysis.neckline}</p>}
-            {analysis.sleeveType && <p>Kol: {analysis.sleeveType}</p>}
-            {analysis.closure && <p>Kapama: {analysis.closure}</p>}
-            {analysis.notes && <p className="text-stone-500">{analysis.notes}</p>}
+            {analyses.map((analysis, i) => (
+              <div key={i} className="text-sm bg-stone-50 dark:bg-stone-900 rounded-xl p-3 space-y-1">
+                {analysis.garmentType && (
+                  <p>
+                    {analyses.length > 1 ? `${i + 1}. parça — ` : "Tahmin edilen tip: "}
+                    <strong>{GARMENT_LABELS[analysis.garmentType]}</strong>
+                    {analyses.length === 1 && " (yukarıda otomatik seçildi, istersen değiştirebilirsin)"}
+                  </p>
+                )}
+                {analysis.silhouette && <p>Siluet: {analysis.silhouette}</p>}
+                {analysis.neckline && <p>Yaka: {analysis.neckline}</p>}
+                {analysis.sleeveType && <p>Kol: {analysis.sleeveType}</p>}
+                {analysis.closure && <p>Kapama: {analysis.closure}</p>}
+                {analysis.notes && <p className="text-stone-500">{analysis.notes}</p>}
+              </div>
+            ))}
           </div>
         )}
       </div>
 
       <div className="flex justify-end">
-        <button type="button" onClick={onNext} className="rounded-full bg-rose-600 text-white px-6 py-2.5 text-sm font-medium hover:bg-rose-700">
+        <button
+          type="button"
+          disabled={garmentTypes.length === 0}
+          onClick={onNext}
+          className="rounded-full bg-rose-600 disabled:opacity-40 text-white px-6 py-2.5 text-sm font-medium hover:bg-rose-700"
+        >
           Devam Et →
         </button>
       </div>
@@ -283,7 +345,7 @@ const SKIRT_LENGTH_PRESETS = [
 ];
 
 function StepMeasurements({
-  garmentType,
+  garmentTypes,
   measurements,
   onChangeMeasurements,
   options,
@@ -291,7 +353,7 @@ function StepMeasurements({
   onBack,
   onSubmit,
 }: {
-  garmentType: GarmentType;
+  garmentTypes: GarmentType[];
   measurements: RawMeasurements;
   onChangeMeasurements: (m: RawMeasurements) => void;
   options: OptionsState;
@@ -301,8 +363,8 @@ function StepMeasurements({
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const defaults = deriveMeasurements(measurements);
-  const hasBodice = garmentType === "bluz" || garmentType === "elbise";
-  const hasSkirt = garmentType === "etek" || garmentType === "elbise";
+  const hasBodice = garmentTypes.includes("bluz") || garmentTypes.includes("elbise");
+  const hasSkirt = garmentTypes.includes("etek") || garmentTypes.includes("elbise");
 
   const requiredValid = measurements.bust > 0 && measurements.waist > 0 && measurements.hip > 0 && measurements.height > 0;
 
@@ -481,20 +543,27 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 
 function StepResult({
   pattern,
+  patternsByType,
   options,
-  analysis,
+  analyses,
   onBack,
   onRestart,
 }: {
   pattern: GeneratedPattern;
-  options: GarmentOptions;
-  analysis: GarmentPhotoAnalysis | null;
+  patternsByType: PatternByType[];
+  options: OptionsState;
+  analyses: GarmentPhotoAnalysis[];
   onBack: () => void;
   onRestart: () => void;
 }) {
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const sections = buildInstructions(options, pattern, analysis);
+  const multiPiece = patternsByType.length > 1;
+  const sections = patternsByType.flatMap(({ type, pattern: piecePattern }) => {
+    const matchedAnalysis = analyses.find((a) => a.garmentType === type) ?? null;
+    const sub = buildInstructions({ ...options, garmentType: type }, piecePattern, matchedAnalysis);
+    return multiPiece ? sub.map((s) => ({ ...s, heading: `${GARMENT_LABELS[type]} — ${s.heading}` })) : sub;
+  });
   const totalPrintPages = useMemo(() => pattern.pieces.reduce((sum, p) => sum + computeTiles(p).length, 0), [pattern.pieces]);
 
   async function handleDownloadPdf() {
