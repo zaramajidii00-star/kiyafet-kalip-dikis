@@ -317,7 +317,11 @@ function StepGarment({
             <img src={previewUrl} alt="Seçilen kıyafet" className="h-16 w-16 rounded-lg object-cover border border-stone-200 dark:border-stone-800" />
           )}
         </div>
-        {error && <p className="text-sm text-amber-600 mt-2">{error}</p>}
+        {error && (
+          <div className="mt-3 rounded-xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 p-3 text-sm font-medium text-red-700 dark:text-red-300">
+            ⚠️ {error}
+          </div>
+        )}
         {analyses.length > 0 && (
           <div className="mt-3 space-y-2">
             {analyses.length > 1 && (
